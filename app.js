@@ -1,14 +1,31 @@
+if (process.env.NODE_ENV != "PRODUCTION") {
+  require("dotenv").config();
+}
+// console.log(process.env.CLOUD_NAME);
+
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
-const Listing = require("./models/listing");
 let mongoose_url = "mongodb://127.0.0.1:27017/wanderlust";
 let path = require("path");
 const methodoverride = require("method-override");
 const engine = require("ejs-mate");
-const wrapAsync = require("./utils/wrapAsync.js");
 const ExpressError = require("./utils/ExpressError.js");
-const {listingSchema} = require("./validateSchema.js");
+const session = require("express-session");
+const MongoStore = require('connect-mongo');
+const flash = require("connect-flash");
+
+const listingsRouter = require("./routes/listings.js");
+const reviewRouter = require("./routes/review.js");
+const userRouter = require("./routes/user.js");
+
+const passport = require("passport");
+const LocalStrategy = require("passport-local");
+const User = require("./models/user.js");
+const { log } = require("console");
+
+let dburl=process.env.ATLASDB_URL;
+
 
 main()
   .then(() => {
@@ -17,12 +34,12 @@ main()
   .catch((err) => console.log(err));
 
 async function main() {
-  await mongoose.connect(mongoose_url);
+  await mongoose.connect(dburl);
 }
 
-app.get("/", (req, res) => {
-  res.send("hello bro");
-});
+// app.get("/", (req, res) => {
+//   res.send("hello bro");
+// });
 
 // app.get("/testing", async (req, res) => {
 //   let testing = new Listing({
@@ -45,84 +62,56 @@ app.use(methodoverride("_method"));
 app.engine("ejs", engine);
 app.use(express.static(path.join(__dirname, "public")));
 
-// index Rout
-app.get(
-  "/listings",
-  wrapAsync(async (req, res) => {
-    const alllisting = await Listing.find({});
-    res.render("listing/index.ejs", { alllisting });
-  })
-);
 
-const validateSchema = (req, res, next) => {
-  let { error } = listingSchema.validate(req.body);
-  // console.log(result);
-  if (error) {
-    let errMsg = error.details.map((el) => el.message).join(",");
-    throw new ExpressError(400, error);
-  } else {
-    next();
-  }
+const store=MongoStore.create({
+  mongoUrl:dburl,
+  crypto: {
+    secret: process.env.SECRET,
+  },
+  touchAfter:24 * 3600,
+});
+
+store.on("error",()=>{
+  console.log("error in mongoSession",err);
+});
+
+const sessionOption = {
+  store,
+  secret: process.env.SECRET ,
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+    expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+  },
 };
 
 
-// add New
-app.get("/listings/new", (req, res) => {
-  res.render("listing/new.ejs");
+
+
+app.use(session(sessionOption));
+app.use(flash());
+
+app.use(passport.initialize());
+app.use(passport.session());
+passport.use(new LocalStrategy(User.authenticate()));
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+
+app.use((req, res, next) => {
+  res.locals.success = req.flash("success");
+  res.locals.error = req.flash("error");
+  res.locals.currUser = req.user;
+  next();
 });
 
-app.post(
-  "/listings",validateSchema,
-  wrapAsync(async (req, res, next) => {
-    let newlisting = new Listing(req.body.listing);
-    await newlisting.save();
-    res.redirect("/listings");
-  })
-);
+app.use("/listings", listingsRouter);
+app.use("/listings/:id/reviews", reviewRouter);
+app.use("/", userRouter);
 
-// show Routs
-app.get(
-  "/listings/:id",
-  wrapAsync(async (req, res) => {
-    let { id } = req.params;
-    const listing = await Listing.findById(id);
-    res.render("listing/show.ejs", { listing });
-  })
-);
-
-//edit Route
-
-app.get(
-  "/listings/:id/edit",
-  wrapAsync(async (req, res) => {
-    let { id } = req.params;
-    const listing = await Listing.findById(id);
-    res.render("listing/edit.ejs", { listing });
-  })
-);
-
-//update Route
-app.put(
-  "/listings/:id",validateSchema,
-  wrapAsync(async (req, res) => {
-    let { id } = req.params;
-    //console.log(req.body);
-    await Listing.findByIdAndUpdate(id, { ...req.body.listing });
-    res.redirect(`/listings/${id}`);
-  })
-);
-
-//Delete Route
-app.delete(
-  "/listings/:id",
-  wrapAsync(async (req, res) => {
-    let { id } = req.params;
-    let deletedListing = await Listing.findByIdAndDelete(id);
-    console.log(deletedListing);
-    res.redirect("/listings");
-  })
-);
-
+// error handler
 app.all("*", (req, res, next) => {
   next(new ExpressError(404, "page Not found!"));
 });

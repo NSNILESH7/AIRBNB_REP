@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const review = require("./review");
 let Schema = mongoose.Schema;
 
 let listingSchme = new Schema({
@@ -8,17 +9,39 @@ let listingSchme = new Schema({
   },
   description: String,
   image: {
-    type: String,
-    default:
-      "https://unsplash.com/photos/a-https://images.unsplash.com/photo-1605649487212-47bdab064df7?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D-of-palm-trees-sitting-in-the-middle-of-a-body-of-water-ur0JU-NBblk",
-    set: (v) =>
-      v ===""
-        ? "https://unsplash.com/photos/a-https://images.unsplash.com/photo-1605649487212-47bdab064df7?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D-of-palm-trees-sitting-in-the-middle-of-a-body-of-water-ur0JU-NBblk"
-        : v,
+    url: String,
+    filename: String,
   },
   price: Number,
   location: String,
   country: String,
+  reviews: [
+    {
+      type: Schema.Types.ObjectId,
+      ref: "Review",
+    },
+  ],
+  owner: {
+    type: Schema.Types.ObjectId,
+    ref: "user",
+  },
+  geometry:{
+      type: {
+        type: String, // Don't do `{ location: { type: String } }`
+        enum: ['Point'], // 'location.type' must be 'Point'
+        required: true
+      },
+      coordinates: {
+        type: [Number],
+        required: true
+      }
+  }
+});
+
+listingSchme.post("findOneAndDelete", async (listing) => {
+  if (listing) {
+    await review.deleteMany({ _id: { $in: listing.reviews } });
+  }
 });
 
 let Listing = mongoose.model("Listing", listingSchme);
